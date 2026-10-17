@@ -28,13 +28,19 @@
 
 - 접근은 Tailscale 네트워크 내부로 한정한다. 앱 자체 인증은 없다.
 - 컨테이너 안의 `claude` 인증: Mac에서 `claude setup-token`으로 발급한 장기 토큰을 환경변수 `CLAUDE_CODE_OAUTH_TOKEN`으로 주입한다.
-- 최종 산출물: React 빌드 결과를 `embed`한 **Go 단일 바이너리** + `claude` CLI를 포함한 docker 이미지.
+- 최종 산출물: React 빌드 결과를 `embed`한 **Go 단일 바이너리** + `claude` CLI, `mutool`(mupdf-tools), `infisical` CLI를 포함한 docker 이미지. 이미지 빌드 시 `mutool draw -F stext.json` 지원 여부를 검사한다.
+
+### 구현 계획 분할
+
+1. 백엔드 (API를 curl로 끝까지 검증 가능)
+2. 프론트엔드 (React, Go 바이너리에 embed)
+3. 배포 (Dockerfile, TrueNAS Apps, Infisical prod)
 
 ## 3. 기술 스택
 
 - 백엔드: Go
   - HTTP: 표준 `net/http` (Go 1.22+ 라우팅 패턴)
-  - PDF: `github.com/gen2brain/go-fitz` (MuPDF cgo 바인딩). 페이지 PNG 렌더링, 텍스트 블록 추출
+  - PDF: MuPDF CLI `mutool` (서브프로세스). `mutool draw -r <DPI>`로 PNG 렌더링, `mutool draw -F stext.json`으로 블록/줄 + bbox 추출. cgo 없음. (go-fitz는 블록 단위 bbox를 제공하지 않아 제외 — 2026-10-17 검증)
   - DB: Postgres + `github.com/jackc/pgx/v5`, 마이그레이션은 `github.com/pressly/goose/v3`
   - LLM: `claude -p` 서브프로세스 (`os/exec`)
   - 실시간 전달: SSE
@@ -54,7 +60,7 @@ paper-reader/
 │   │   ├── handler/              # HTTP (= controller). router.go, paper.go, page.go, ask.go, dto.go
 │   │   ├── service/              # 비즈니스 로직. paper.go, page.go, ask.go
 │   │   ├── store/                # Postgres (= repository). db.go, migrations/*.sql, *_repo.go
-│   │   ├── pdf/                  # go-fitz 래핑
+│   │   ├── pdf/                  # mutool 실행 + stext.json 파싱
 │   │   ├── llm/                  # claude -p 실행기, stream-json 파서, prompts/*.tmpl (go:embed)
 │   │   └── jobs/                 # 생성 작업 큐 / 워커
 │   ├── go.mod
@@ -92,6 +98,7 @@ paper-reader/
 | `WORKERS` | `2` | 동시 생성 워커 수 |
 | `JOB_TIMEOUT` | `5m` | 작업당 타임아웃 |
 | `RENDER_DPI` | `150` | 페이지 PNG 해상도 |
+| `MUTOOL_BIN` | `mutool` | MuPDF CLI 경로 |
 | `CLAUDE_CODE_OAUTH_TOKEN` | — | 운영 컨테이너에서 claude 인증 (앱은 읽지 않고 자식 프로세스에 그대로 상속) |
 
 ## 6. 파일 저장 레이아웃
@@ -107,8 +114,8 @@ DB에는 `DATA_DIR` 기준 상대 경로만 저장한다.
 
 ```sql
 papers (
-  id          uuid primary key,
-  title       text not null,            -- PDF 메타데이터 제목, 없으면 파일명
+  id          text primary key,         -- Go에서 생성한 UUID 문자열
+  title       text not null,            -- 업로드 파일명에서 확장자를 뺀 값
   filename    text not null,
   page_count  int  not null,
   status      text not null,            -- 'processing' | 'ready' | 'failed'
@@ -117,17 +124,17 @@ papers (
 )
 
 pages (
-  paper_id    uuid references papers(id) on delete cascade,
+  paper_id    text references papers(id) on delete cascade,
   page_no     int  not null,            -- 1부터
   width       real not null,            -- PDF 포인트 단위
   height      real not null,
   image_path  text not null,
-  blocks      jsonb not null,           -- [{id, bbox:[x0,y0,x1,y1], text, kind}]
+  blocks      jsonb not null,           -- [{id, bbox:{x,y,w,h}, text}]  (PDF 포인트, 좌상단 원점)
   primary key (paper_id, page_no)
 )
 
 page_results (
-  paper_id        uuid,
+  paper_id        text,
   page_no         int,
   status          text not null,        -- 'pending' | 'running' | 'done' | 'failed'
   translation     jsonb,                -- [{block_id, ko}]
@@ -141,7 +148,7 @@ page_results (
 )
 
 glossary (
-  paper_id   uuid references papers(id) on delete cascade,
+  paper_id   text references papers(id) on delete cascade,
   term_en    text not null,
   term_ko    text not null,
   note       text,
@@ -149,8 +156,8 @@ glossary (
 )
 
 threads (
-  id          uuid primary key,
-  paper_id    uuid not null,
+  id          text primary key,
+  paper_id    text not null,
   page_no     int  not null,
   anchor      jsonb not null,           -- {block_ids:[...], quote:"선택한 텍스트"}
   created_at  timestamptz not null default now(),
@@ -159,7 +166,7 @@ threads (
 
 messages (
   id          bigserial primary key,
-  thread_id   uuid not null references threads(id) on delete cascade,
+  thread_id   text not null references threads(id) on delete cascade,
   role        text not null,            -- 'user' | 'assistant'
   content     text not null,
   status      text not null,            -- 'done' | 'streaming' | 'failed'
@@ -168,7 +175,8 @@ messages (
 ```
 
 - 블록 `id`는 페이지 내 순번 문자열(`b0`, `b1`, …)이다.
-- 블록 `kind`: `text` | `image`. 추출 단계에서는 MuPDF 블록 타입만 구분한다. 수식이나 캡션 같은 의미 분류는 LLM이 이미지를 보고 해설에서 다룬다.
+- 블록은 텍스트 블록만 저장한다 (stext.json의 `type:"text"`). 블록 텍스트는 줄을 공백으로 잇고, `-`로 끝나는 줄은 공백 없이 잇는다. 그림·수식 영역은 LLM이 페이지 이미지를 보고 해설에서 다룬다.
+- 페이지 크기(pt) = PNG 픽셀 × 72 / `RENDER_DPI`.
 - 용어집은 `(paper_id, term_en)` 기준으로 **먼저 들어온 번역이 이긴다** (`on conflict do nothing`). 수동 편집 UI는 범위 밖이다.
 
 ## 8. 주요 흐름
@@ -176,7 +184,7 @@ messages (
 ### 8.1 업로드
 
 1. `POST /api/papers` (multipart) → `papers` 행을 `processing`으로 생성하고 PDF를 저장한 뒤 `201`을 즉시 반환한다.
-2. 백그라운드 고루틴: go-fitz로 페이지별 PNG 렌더링과 텍스트 블록 추출 → `pages`에 일괄 삽입 → `ready`로 변경.
+2. 백그라운드 고루틴: mutool로 페이지별 PNG 렌더링과 텍스트 블록 추출 → `pages`에 일괄 삽입 → `ready`로 변경.
 3. 실패하면 `failed`와 에러 메시지를 남긴다. 프론트는 목록을 폴링(2초)해서 상태를 표시한다.
 
 LLM은 업로드 단계에서 호출하지 않는다.
@@ -227,7 +235,8 @@ claude -p --input-format stream-json --output-format stream-json --verbose \
 - stdout의 stream-json에서 텍스트 델타를 모아 상위로 전달한다.
 - 종료 코드가 0이 아니거나 `result` 이벤트가 에러이면 stderr/결과 메시지를 에러로 반환한다.
 
-**구현 1단계 스파이크로 검증할 것:** 위 플래그 조합(특히 이미지 입력과 도구 비활성화 플래그명)이 설치된 CLI 버전에서 실제로 동작하는지. 동작하지 않으면 대안은 PNG 경로를 주고 `Read` 도구만 허용하는 방식이다.
+- 추가 플래그: `--no-session-persistence --strict-mcp-config --setting-sources ""`. 작업 디렉토리는 빈 임시 디렉토리로 둔다 (프로젝트 CLAUDE.md 등 로드 방지).
+- **검증 완료 (2026-10-17, CLI 2.1.292):** base64 이미지 입력 동작, 텍스트 증분은 `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":...}}}`, 최종은 `{"type":"result","is_error":bool,"result":string}`.
 
 ### 9.2 인터페이스
 
