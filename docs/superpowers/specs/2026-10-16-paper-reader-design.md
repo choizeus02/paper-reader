@@ -76,9 +76,11 @@ paper-reader/
 
 ## 5. 설정 (환경변수)
 
-- 앱은 **환경변수만** 읽는다. 시크릿 저장소에 의존하는 코드는 두지 않는다.
-- 개발: 시작 시 저장소 루트의 `.env`가 있으면 로드한다 (`github.com/joho/godotenv`). 이미 설정된 환경변수가 우선이다. `.env`는 git에서 제외하고, `.env.example`을 커밋한다.
-- 운영: 시크릿 관리 도구가 프로세스 환경변수로 주입한다 (예: `infisical run -- ./server`). 앱 코드는 바뀌지 않는다.
+- 앱은 **환경변수만** 읽는다. 시크릿 저장소에 의존하는 코드나 `.env` 로더는 두지 않는다.
+- 시크릿은 self-hosted **Infisical**(TrueNAS)의 `paper-reader` 프로젝트에서 관리한다. 환경: `dev`(Development), `prod`(Production).
+- 개발: `make dev`가 `infisical run --env=dev -- ...`로 서버를 띄운다. 저장소 루트의 `.infisical.json`(프로젝트 ID만 들어 있음)은 커밋한다.
+- 운영: 컨테이너 시작 명령이 `infisical run --env=prod -- ./server`다. 컨테이너에는 Machine Identity 자격증명(`INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`)과 `INFISICAL_API_URL`만 TrueNAS 앱 환경변수로 직접 넣는다.
+- 시크릿이 아닌 설정(`WORKERS` 등)은 기본값을 쓰고, 바꿀 때만 Infisical에 추가한다.
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
