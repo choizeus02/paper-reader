@@ -105,3 +105,24 @@ func TestSetPaperReadyMissingPaper(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestFailProcessingPapers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreatePaper(ctx, domain.Paper{ID: "proc", Title: "a", Filename: "a.pdf", Status: domain.PaperProcessing, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	seedPaper(t, s, "ok", 1) // ready
+	n, err := s.FailProcessingPapers(ctx, "서버 재시작으로 중단됨")
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	p, _ := s.GetPaper(ctx, "proc")
+	if p.Status != domain.PaperFailed || p.Error != "서버 재시작으로 중단됨" {
+		t.Fatalf("proc = %+v", p)
+	}
+	p, _ = s.GetPaper(ctx, "ok")
+	if p.Status != domain.PaperReady {
+		t.Fatalf("ready paper touched: %+v", p)
+	}
+}

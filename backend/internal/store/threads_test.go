@@ -106,3 +106,36 @@ func TestDeletePaperCascades(t *testing.T) {
 		}
 	}
 }
+
+func TestFailStreamingMessages(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedPaper(t, s, "p1", 1)
+	now := time.Now().UTC()
+	if err := s.CreateThread(ctx, domain.Thread{ID: "t1", PaperID: "p1", PageNo: 1, Anchor: domain.Anchor{BlockIDs: []string{}}, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	add := func(role domain.MessageRole, content string, st domain.MessageStatus) {
+		if _, err := s.AddMessage(ctx, domain.Message{ThreadID: "t1", Role: role, Content: content, Status: st, CreatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(domain.RoleUser, "q", domain.MessageDone)
+	add(domain.RoleAssistant, "", domain.MessageStreaming)
+	add(domain.RoleAssistant, "부분 답변", domain.MessageStreaming)
+	n, err := s.FailStreamingMessages(ctx, "서버 재시작으로 중단됨")
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	th, _ := s.GetThread(ctx, "t1")
+	m := th.Messages
+	if m[0].Status != domain.MessageDone || m[0].Content != "q" {
+		t.Fatalf("done message touched: %+v", m[0])
+	}
+	if m[1].Status != domain.MessageFailed || m[1].Content != "서버 재시작으로 중단됨" {
+		t.Fatalf("empty: %+v", m[1])
+	}
+	if m[2].Status != domain.MessageFailed || m[2].Content != "부분 답변\n\n(서버 재시작으로 중단됨)" {
+		t.Fatalf("partial: %+v", m[2])
+	}
+}

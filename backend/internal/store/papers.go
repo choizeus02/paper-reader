@@ -116,3 +116,13 @@ func (s *Store) GetPage(ctx context.Context, paperID string, pageNo int) (domain
 	}
 	return pg, nil
 }
+
+// FailProcessingPapers marks papers whose extraction was interrupted as failed.
+func (s *Store) FailProcessingPapers(ctx context.Context, msg string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update papers set status = 'failed', error = $1 where status = 'processing'`, msg)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

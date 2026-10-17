@@ -352,3 +352,39 @@ func (q *fakeQueue) Promote(k jobs.Key) {
 	defer q.mu.Unlock()
 	q.promoted = append(q.promoted, k)
 }
+
+func (f *fakeRepo) FailProcessingPapers(_ context.Context, msg string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for id, p := range f.papers {
+		if p.Status == domain.PaperProcessing {
+			p.Status, p.Error = domain.PaperFailed, msg
+			f.papers[id] = p
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeRepo) FailStreamingMessages(_ context.Context, msg string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for tid, t := range f.threads {
+		for i, m := range t.Messages {
+			if m.Status != domain.MessageStreaming {
+				continue
+			}
+			if m.Content == "" {
+				t.Messages[i].Content = msg
+			} else {
+				t.Messages[i].Content += "\n\n(" + msg + ")"
+			}
+			t.Messages[i].Status = domain.MessageFailed
+			n++
+		}
+		f.threads[tid] = t
+	}
+	return n, nil
+}

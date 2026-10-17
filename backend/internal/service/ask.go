@@ -127,3 +127,12 @@ func (s *AskService) buildRequest(ctx context.Context, t domain.Thread, question
 	}
 	return llm.Request{System: llm.AskSystem, Image: img, Prompt: prompt}, nil
 }
+
+// Recover fails assistant replies that were still streaming at shutdown.
+func (s *AskService) Recover(ctx context.Context) error {
+	n, err := s.d.Threads.FailStreamingMessages(ctx, restartMsg)
+	if n > 0 {
+		log.Printf("marked %d unfinished answers as failed", n)
+	}
+	return err
+}

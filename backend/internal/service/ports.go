@@ -17,6 +17,7 @@ type PaperRepo interface {
 	ListPapers(ctx context.Context) ([]domain.Paper, error)
 	GetPaper(ctx context.Context, id string) (domain.Paper, error)
 	DeletePaper(ctx context.Context, id string) error
+	FailProcessingPapers(ctx context.Context, msg string) (int64, error)
 }
 
 type PageRepo interface {
@@ -43,6 +44,7 @@ type ThreadRepo interface {
 	ListThreads(ctx context.Context, paperID string, pageNo int) ([]domain.Thread, error)
 	AddMessage(ctx context.Context, m domain.Message) (int64, error)
 	FinishMessage(ctx context.Context, id int64, content string, status domain.MessageStatus) error
+	FailStreamingMessages(ctx context.Context, msg string) (int64, error)
 }
 
 type PDFProcessor interface {

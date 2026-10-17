@@ -111,3 +111,18 @@ func TestDeleteRemovesFiles(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestPaperRecover(t *testing.T) {
+	s, repo, _ := newPaperSvc(t, &fakePDF{})
+	ctx := context.Background()
+	_ = repo.CreatePaper(ctx, domain.Paper{ID: "a", Status: domain.PaperProcessing})
+	_ = repo.CreatePaper(ctx, domain.Paper{ID: "b", Status: domain.PaperReady})
+	if err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := repo.GetPaper(ctx, "a")
+	b, _ := repo.GetPaper(ctx, "b")
+	if a.Status != domain.PaperFailed || a.Error != "서버 재시작으로 중단됨" || b.Status != domain.PaperReady {
+		t.Fatalf("a=%+v b=%+v", a, b)
+	}
+}

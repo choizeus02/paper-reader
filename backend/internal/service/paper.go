@@ -123,3 +123,12 @@ func writeFile(path string, r io.Reader) error {
 	}
 	return f.Close()
 }
+
+// Recover fails papers whose extraction was cut off by a restart.
+func (s *PaperService) Recover(ctx context.Context) error {
+	n, err := s.repo.FailProcessingPapers(ctx, restartMsg)
+	if n > 0 {
+		log.Printf("marked %d unfinished papers as failed", n)
+	}
+	return err
+}

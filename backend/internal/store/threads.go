@@ -119,3 +119,16 @@ func nonNil(m []domain.Message) []domain.Message {
 	}
 	return m
 }
+
+// FailStreamingMessages marks interrupted assistant replies as failed,
+// keeping any partial content and appending msg to it.
+func (s *Store) FailStreamingMessages(ctx context.Context, msg string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`update messages set status = 'failed',
+		   content = case when content = '' then $1 else content || E'\n\n(' || $1 || ')' end
+		 where status = 'streaming'`, msg)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

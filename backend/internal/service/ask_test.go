@@ -153,3 +153,21 @@ func TestAskStartFailureCreatesNoThread(t *testing.T) {
 		t.Fatalf("orphan thread created: %v", err)
 	}
 }
+
+func TestAskRecover(t *testing.T) {
+	svc, f := newAskSvc(t)
+	ctx := context.Background()
+	_ = f.repo.CreateThread(ctx, domain.Thread{ID: "t9", PaperID: "p1", PageNo: 1})
+	_, _ = f.repo.AddMessage(ctx, domain.Message{ThreadID: "t9", Role: domain.RoleAssistant, Content: "부분", Status: domain.MessageStreaming})
+	_, _ = f.repo.AddMessage(ctx, domain.Message{ThreadID: "t9", Role: domain.RoleUser, Content: "q", Status: domain.MessageDone})
+	if err := svc.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	th, _ := f.repo.GetThread(ctx, "t9")
+	if m := th.Messages[0]; m.Status != domain.MessageFailed || m.Content != "부분\n\n(서버 재시작으로 중단됨)" {
+		t.Fatalf("streaming msg: %+v", m)
+	}
+	if th.Messages[1].Status != domain.MessageDone {
+		t.Fatalf("done msg touched: %+v", th.Messages[1])
+	}
+}
