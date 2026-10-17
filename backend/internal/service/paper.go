@@ -77,7 +77,9 @@ func (s *PaperService) process(id string) {
 	defer cancel()
 	dir := paperDir(s.dataDir, id)
 	pages, err := s.pdf.Process(ctx, filepath.Join(dir, "original.pdf"), filepath.Join(dir, "pages"))
-	if err == nil && len(pages) == 0 {
+	if err != nil {
+		err = fmt.Errorf("PDF 처리 실패: %w", err)
+	} else if len(pages) == 0 {
 		err = fmt.Errorf("페이지가 없는 PDF입니다")
 	}
 	if err == nil {

@@ -74,7 +74,7 @@ func TestUploadMarksFailedOnExtractError(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := repo.GetPaper(context.Background(), "p1")
-	if got.Status != domain.PaperFailed || !strings.Contains(got.Error, "cannot open") {
+	if got.Status != domain.PaperFailed || !strings.HasPrefix(got.Error, "PDF 처리 실패: ") || !strings.Contains(got.Error, "cannot open") {
 		t.Fatalf("want failed with message, got %+v", got)
 	}
 }
@@ -92,7 +92,12 @@ func TestUploadMarksFailedOnZeroPages(t *testing.T) {
 
 func TestDeleteRemovesFiles(t *testing.T) {
 	s, repo, dir := newPaperSvc(t, &fakePDF{pages: []domain.Page{{PageNo: 1, ImagePath: "001.png", Blocks: []domain.Block{}}}})
-	_, _ = s.Upload(context.Background(), "x.pdf", strings.NewReader("%PDF-1.4"))
+	if _, err := s.Upload(context.Background(), "x.pdf", strings.NewReader("%PDF-1.4")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "papers", "p1")); err != nil {
+		t.Fatalf("paper directory should exist before delete: %v", err)
+	}
 	if err := s.Delete(context.Background(), "p1"); err != nil {
 		t.Fatal(err)
 	}

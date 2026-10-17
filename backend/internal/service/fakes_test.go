@@ -99,6 +99,12 @@ func (f *fakeRepo) DeletePaper(_ context.Context, id string) error {
 			delete(f.results, k)
 		}
 	}
+	delete(f.glossary, id)
+	for tid, t := range f.threads {
+		if t.PaperID == id {
+			delete(f.threads, tid)
+		}
+	}
 	return nil
 }
 
