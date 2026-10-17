@@ -36,6 +36,13 @@ func (s *Store) SetPaperReady(ctx context.Context, id string, pages []domain.Pag
 		return err
 	}
 	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `update papers set page_count = $2, status = 'ready', error = null where id = $1`, id, len(pages))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	for _, pg := range pages {
 		blocks := pg.Blocks
 		if blocks == nil {
@@ -46,13 +53,6 @@ func (s *Store) SetPaperReady(ctx context.Context, id string, pages []domain.Pag
 			id, pg.PageNo, pg.Width, pg.Height, pg.ImagePath, blocks); err != nil {
 			return err
 		}
-	}
-	tag, err := tx.Exec(ctx, `update papers set page_count = $2, status = 'ready', error = null where id = $1`, id, len(pages))
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
 	}
 	return tx.Commit(ctx)
 }

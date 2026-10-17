@@ -97,3 +97,11 @@ func TestSetPaperFailedAndOrdering(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestSetPaperReadyMissingPaper(t *testing.T) {
+	s := newTestStore(t)
+	pages := []domain.Page{{PaperID: "nope", PageNo: 1, Width: 1, Height: 1, ImagePath: "x"}}
+	if err := s.SetPaperReady(context.Background(), "nope", pages); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
