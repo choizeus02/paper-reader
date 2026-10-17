@@ -1,0 +1,4 @@
+%%MediaBox 0 0 300 200
+%%Font F1 Times-Roman
+BT /F1 12 Tf 20 160 Td (Hello paper reader.) Tj ET
+BT /F1 12 Tf 20 60 Td (Second block here.) Tj ET
