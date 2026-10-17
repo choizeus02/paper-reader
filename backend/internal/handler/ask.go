@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -67,8 +68,14 @@ func streamAnswer(ctx context.Context, w http.ResponseWriter, fn func(onDelta fu
 	}
 	if err != nil {
 		if sse == nil {
-			writeError(w, err)
-			return
+			if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalid) {
+				writeError(w, err)
+				return
+			}
+			if !ensure() {
+				writeError(w, startErr)
+				return
+			}
 		}
 		_ = sse.send("error", map[string]string{"message": err.Error()})
 		return

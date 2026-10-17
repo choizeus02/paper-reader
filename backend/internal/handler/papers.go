@@ -1,14 +1,22 @@
 package handler
 
-import "net/http"
+import (
+	"errors"
+	"github.com/choizeus02/paper-reader/backend/internal/domain"
+	"net/http"
+)
 
-const maxUpload = 200 << 20
+// maxUpload is a var so tests can lower it.
+var maxUpload int64 = 200 << 20
 
 func (h *api) listPapers(w http.ResponseWriter, r *http.Request) {
 	papers, err := h.papers.List(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	if papers == nil {
+		papers = []domain.Paper{}
 	}
 	writeJSON(w, http.StatusOK, papers)
 }
@@ -17,6 +25,11 @@ func (h *api) uploadPaper(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "파일이 너무 큽니다 (최대 200MB)"})
+			return
+		}
 		writeError(w, invalid("file 필드에 PDF를 담아 보내세요"))
 		return
 	}

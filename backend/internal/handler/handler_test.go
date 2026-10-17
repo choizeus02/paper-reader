@@ -258,10 +258,16 @@ func TestAskSSE(t *testing.T) {
 	if rec := do(h, "POST", "/api/papers/p1/pages/1/threads", strings.NewReader(`{"question":"  "}`), "application/json"); rec.Code != 400 {
 		t.Fatalf("empty question: %d", rec.Code)
 	}
-	ask.midErr = errors.New("claude: usage limit")
+	ask.err = errors.New("claude: usage limit")
 	rec = do(h, "POST", "/api/papers/p1/pages/1/threads", strings.NewReader(`{"question":"q"}`), "application/json")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "event: error\ndata: {\"message\":\"claude: usage limit\"}") {
-		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "event: error\ndata: {\"message\":\"claude: usage limit\"}") {
+		t.Fatalf("got %q", rec.Body.String())
+	}
+	ask.err = nil
+	ask.midErr = errors.New("claude: mid")
+	rec = do(h, "POST", "/api/papers/p1/pages/1/threads", strings.NewReader(`{"question":"q"}`), "application/json")
+	if !strings.Contains(rec.Body.String(), "event: delta") || !strings.Contains(rec.Body.String(), "event: error\ndata: {\"message\":\"claude: mid\"}") {
+		t.Fatalf("mid: %q", rec.Body.String())
 	}
 	ask.midErr = nil
 	rec = do(h, "POST", "/api/threads/t1/messages", strings.NewReader(`{"question":"더"}`), "application/json")
@@ -290,16 +296,44 @@ func TestAskPreStreamErrors(t *testing.T) {
 	if rec := do(h, "POST", "/api/papers/p1/pages/1/threads", strings.NewReader(`{"question":"q"}`), "application/json"); rec.Code != 400 {
 		t.Fatalf("start invalid: %d", rec.Code)
 	}
-	ask.err = errors.New("boom")
-	if rec := do(h, "POST", "/api/papers/p1/pages/1/threads", strings.NewReader(`{"question":"q"}`), "application/json"); rec.Code != 500 {
-		t.Fatalf("start internal: %d", rec.Code)
-	}
 }
 
 func TestAPICatchAllKorean(t *testing.T) {
 	h, _, _, _ := newTestRouter()
 	rec := do(h, "GET", "/api/nothing", nil, "")
 	if rec.Code != 404 || !strings.Contains(rec.Body.String(), "찾을 수 없음") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+type nilPapers struct{ stubPapers }
+
+func (nilPapers) List(context.Context) ([]domain.Paper, error) { return nil, nil }
+
+func TestListPapersNeverNull(t *testing.T) {
+	h := NewRouter(&nilPapers{}, &stubPages{}, &stubAsk{}, nil)
+	rec := do(h, "GET", "/api/papers", nil, "")
+	if strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("got %q", rec.Body.String())
+	}
+}
+
+func TestUploadTooLarge(t *testing.T) {
+	old := maxUpload
+	maxUpload = 100
+	defer func() { maxUpload = old }()
+	h, _, _, _ := newTestRouter()
+	body, ct := multipartBody(t, "file", "big.pdf", strings.Repeat("x", 1000))
+	rec := do(h, "POST", "/api/papers", body, ct)
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "파일이 너무 큽니다") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestWriteErrorHidesInternal(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeError(rec, errors.New("pq: secret detail"))
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "secret") || !strings.Contains(rec.Body.String(), "서버 오류가 발생했습니다") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }

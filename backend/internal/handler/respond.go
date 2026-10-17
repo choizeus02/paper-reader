@@ -29,6 +29,8 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if status == http.StatusInternalServerError {
 		log.Printf("internal error: %v", err)
+		writeJSON(w, status, map[string]string{"error": "서버 오류가 발생했습니다"})
+		return
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
