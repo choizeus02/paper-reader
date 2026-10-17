@@ -88,19 +88,33 @@ func TestMarkerParserNoBlocksStillValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Translation == nil || len(out.Translation) != 0 || out.Explanation != "그림만 있는 페이지" {
+	if out.Translation == nil || len(out.Translation) != 0 || out.Glossary == nil || len(out.Glossary) != 0 || out.Explanation != "그림만 있는 페이지" {
 		t.Fatalf("unexpected: %#v", out)
 	}
 }
 
 func TestMarkerParserCRLF(t *testing.T) {
 	p := NewMarkerParser(nil, nil)
-	p.Write("@@BLOCK b0\r\n안녕\r\n@@EXPLANATION\r\n설명\r\n@@END\r\n")
+	p.Write("@@BLOCK b0\r\n안녕\r\n@@EXPLANATION\r\n설명\r\n@@SUMMARY\r\n요약\r\n@@END\r\n")
 	out, err := p.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.Translation[0].Ko != "안녕" || out.Explanation != "설명" {
 		t.Fatalf("unexpected: %#v", out)
+	}
+}
+
+func TestMarkerParserMissingSections(t *testing.T) {
+	for name, in := range map[string]string{
+		"end only":       "@@END",
+		"no explanation": "@@BLOCK b0\n번역\n@@SUMMARY\n요약\n@@END",
+		"no summary":     "@@BLOCK b0\n번역\n@@EXPLANATION\n설명\n@@END",
+	} {
+		p := NewMarkerParser(nil, nil)
+		p.Write(in)
+		if _, err := p.Finish(); !errors.Is(err, ErrIncompleteOutput) {
+			t.Errorf("%s: want ErrIncompleteOutput, got %v", name, err)
+		}
 	}
 }

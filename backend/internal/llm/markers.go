@@ -7,7 +7,7 @@ import (
 	"github.com/choizeus02/paper-reader/backend/internal/domain"
 )
 
-var ErrIncompleteOutput = errors.New("llm output missing @@END marker")
+var ErrIncompleteOutput = errors.New("llm output incomplete (missing @@EXPLANATION, @@SUMMARY or @@END)")
 
 type PageOutput struct {
 	Translation []domain.BlockTranslation
@@ -44,6 +44,8 @@ type MarkerParser struct {
 	expl    strings.Builder
 	out     PageOutput
 	sawEnd  bool
+	sawExpl bool
+	sawSum  bool
 }
 
 func NewMarkerParser(onBlock func(domain.BlockTranslation), onExplanation func(string)) *MarkerParser {
@@ -69,11 +71,14 @@ func (p *MarkerParser) Finish() (PageOutput, error) {
 		p.partial = ""
 	}
 	p.closeSection()
-	if !p.sawEnd {
+	if !p.sawEnd || !p.sawExpl || !p.sawSum {
 		return PageOutput{}, ErrIncompleteOutput
 	}
 	if p.out.Translation == nil {
 		p.out.Translation = []domain.BlockTranslation{}
+	}
+	if p.out.Glossary == nil {
+		p.out.Glossary = []domain.GlossaryTerm{}
 	}
 	p.out.Explanation = strings.TrimSpace(p.expl.String())
 	return p.out, nil
@@ -93,10 +98,12 @@ func (p *MarkerParser) line(line string) {
 	case marker == "@@EXPLANATION":
 		p.closeSection()
 		p.sec = secExplanation
+		p.sawExpl = true
 		return
 	case marker == "@@SUMMARY":
 		p.closeSection()
 		p.sec = secSummary
+		p.sawSum = true
 		return
 	case marker == "@@GLOSSARY":
 		p.closeSection()
