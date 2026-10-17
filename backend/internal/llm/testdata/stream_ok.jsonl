@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","session_id":"s1"}
+{"type":"stream_event","event":{"type":"message_start"},"session_id":"s1"}
+{"type":"stream_event","event":{"type":"content_block_start","index":0},"session_id":"s1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"paper-"}},"session_id":"s1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"reader"}},"session_id":"s1"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"paper-reader"}]}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}
+{"type":"result","subtype":"success","is_error":false,"result":"paper-reader","duration_ms":2174}
