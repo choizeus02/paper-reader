@@ -84,7 +84,7 @@ paper-reader/
 
 - 앱은 **환경변수만** 읽는다. 시크릿 저장소에 의존하는 코드나 `.env` 로더는 두지 않는다.
 - 시크릿은 self-hosted **Infisical**(TrueNAS)의 `paper-reader` 프로젝트에서 관리한다. 환경: `dev`(Development), `prod`(Production).
-- 개발: `make dev`가 `infisical run --env=dev -- ...`로 서버를 띄운다. 저장소 루트의 `.infisical.json`(프로젝트 ID만 들어 있음)은 커밋한다.
+- 개발: `make dev`가 `infisical run --env=dev -- ...`로 서버를 띄운다. 저장소 루트의 `.infisical.json`(프로젝트 ID만 들어 있음)은 커밋한다. 이 파일은 사용자가 직접 `infisical init`으로 만든다 (구현 단계에서 생성하지 않는다).
 - 운영: 컨테이너 시작 명령이 `infisical run --env=prod -- ./server`다. 컨테이너에는 Machine Identity 자격증명(`INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`)과 `INFISICAL_API_URL`만 TrueNAS 앱 환경변수로 직접 넣는다.
 - 시크릿이 아닌 설정(`WORKERS` 등)은 기본값을 쓰고, 바꿀 때만 Infisical에 추가한다.
 
@@ -193,9 +193,9 @@ LLM은 업로드 단계에서 호출하지 않는다.
 
 1. `GET /api/papers/{id}/pages/{n}` → 이미지 URL, 블록, `page_results`(있으면)를 반환한다.
 2. 결과가 `done`이면 바로 표시하고 끝난다.
-3. 결과가 없거나 `failed`이면 프론트가 `POST /api/papers/{id}/pages/{n}/generate`를 호출한다.
+3. 결과가 `done`이 아니면(없음, `failed`, `pending`, `running` 모두) 프론트가 `POST /api/papers/{id}/pages/{n}/generate`를 호출한다.
    - service는 `page_results`를 `pending`으로 upsert하고 작업을 큐에 넣는다.
-   - 이미 `pending`/`running`이면 아무것도 하지 않는다 (중복 방지).
+   - 이미 `pending`/`running`이면 새로 만들지 않는다 (중복 방지). 호출은 멱등이며, 사전 생성(prefetch)으로 대기열에 들어 있는 작업은 high 우선순위로 승격된다.
    - `?force=1`이면 `done` 상태도 다시 생성한다 ([다시 생성] 버튼).
 4. 프론트는 `GET /api/papers/{id}/pages/{n}/stream` (SSE)를 구독한다.
 5. 워커:
@@ -285,6 +285,15 @@ attention | 어텐션 | 주의 메커니즘으로 풀어쓰지 않음
 | `explanation` | `{"delta":"..."}` (해설 섹션 텍스트 증분) |
 | `done` | `{}` (프론트는 `GET` 결과를 다시 불러온다) |
 | `error` | `{"message":"..."}` |
+
+프론트 계약:
+
+- (a) `status` 이벤트의 `{"status":"retrying"}`은 1차 시도 출력이 폐기됨을 뜻한다. 클라이언트는 쌓아 둔 블록과 해설을 비워야 한다.
+- (b) 스트림은 종료 이벤트 없이 끝날 수 있다 (느린 구독자가 끊긴 경우, 스트림이 교체된 경우). EventSource가 재연결하면 전체 리플레이를 받으므로, 클라이언트는 연결이 열릴 때마다 상태를 초기화한다.
+- (c) 클라이언트는 `done` 또는 `error`를 받으면 EventSource를 닫아야 한다.
+- (d) `pending` 작업은 실행(`running`)이 시작될 때까지 아무 이벤트도 보내지 않는다.
+- (e) `explanation` 증분은 줄 단위이며 끝의 `"\n"`을 포함한다.
+- (f) 질문 엔드포인트는 POST이므로 EventSource가 아니라 fetch 스트리밍을 쓴다. 이벤트는 `delta{text}`, `done{thread}`, `error{message}`다. NotFound/Invalid는 스트림 시작 전에 4xx JSON `{error}`로 응답하고, 그 외 오류는 `event: error`로 온다.
 
 구독을 시작했을 때 이미 `done`이면 즉시 `done`을 보낸다. `running` 중에 구독하면 지금까지 확정된 블록을 먼저 보내고 이어서 실시간으로 보낸다. jobs 패키지가 작업별 진행 버퍼와 구독자 목록을 메모리에 가진다.
 

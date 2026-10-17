@@ -164,6 +164,19 @@ func TestPrefetch(t *testing.T) {
 	}
 }
 
+// glossaryAtSave records the glossary size seen when SaveDone is called.
+type glossaryAtSave struct {
+	ResultRepo
+	repo *fakeRepo
+	n    int
+}
+
+func (g *glossaryAtSave) SaveDone(ctx context.Context, r domain.PageResult) error {
+	gl, _ := g.repo.ListGlossary(ctx, r.PaperID)
+	g.n = len(gl)
+	return g.ResultRepo.SaveDone(ctx, r)
+}
+
 func TestRunJobSuccess(t *testing.T) {
 	f := newPageFixture(t, fakeResponse{text: goodOutput})
 	ctx := context.Background()
@@ -172,9 +185,14 @@ func TestRunJobSuccess(t *testing.T) {
 	_ = f.repo.AddGlossary(ctx, "p1", []domain.GlossaryTerm{{En: "paper", Ko: "논문"}})
 	_, _ = f.svc.Generate(ctx, "p1", 2, false)
 	drain := f.collect(t, 2)
+	order := &glossaryAtSave{ResultRepo: f.svc.d.Results, repo: f.repo}
+	f.svc.d.Results = order
 
 	if err := f.svc.RunJob(ctx, key(2)); err != nil {
 		t.Fatal(err)
+	}
+	if order.n != 2 {
+		t.Fatalf("glossary must be saved before SaveDone; saw %d terms at save", order.n)
 	}
 	events := drain()
 	if got := names(events); got != "status,block,explanation,explanation,done" {
@@ -387,5 +405,43 @@ func TestRunJobPanicClosesStreamAndFailsRow(t *testing.T) {
 	}
 	if _, _, _, ok := f.hub.Subscribe(key(1)); ok {
 		t.Fatal("stream should be closed")
+	}
+}
+
+type failingResults struct {
+	ResultRepo
+}
+
+func (failingResults) MarkRunning(context.Context, string, int) error {
+	return errors.New("pq: connection refused at 10.0.0.5")
+}
+
+func TestRunJobInternalErrorIsHidden(t *testing.T) {
+	f := newPageFixture(t, fakeResponse{text: goodOutput})
+	ctx := context.Background()
+	_, _ = f.svc.Generate(ctx, "p1", 1, false)
+	f.svc.d.Results = failingResults{f.svc.d.Results}
+	_ = f.svc.RunJob(ctx, key(1))
+	res, _ := f.repo.GetResult(ctx, "p1", 1)
+	if res.Status != domain.ResultFailed || res.Error != "내부 오류가 발생했습니다" {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestRunJobMissingImageIsInternalError(t *testing.T) {
+	f := newPageFixture(t, fakeResponse{text: goodOutput})
+	ctx := context.Background()
+	_, _ = f.svc.Generate(ctx, "p1", 1, false)
+	f.svc.d.DataDir = t.TempDir() // image files absent
+	_ = f.svc.RunJob(ctx, key(1))
+	res, _ := f.repo.GetResult(ctx, "p1", 1)
+	if res.Error != "내부 오류가 발생했습니다" {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestIncompleteOutputMessageIsKorean(t *testing.T) {
+	if llm.ErrIncompleteOutput.Error() != "출력이 완전하지 않음" {
+		t.Fatal(llm.ErrIncompleteOutput)
 	}
 }

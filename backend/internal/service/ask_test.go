@@ -5,8 +5,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/choizeus02/paper-reader/backend/internal/domain"
+	"github.com/choizeus02/paper-reader/backend/internal/llm"
 )
 
 func newAskSvc(t *testing.T, responses ...fakeResponse) (*AskService, *pageFixture) {
@@ -169,5 +171,76 @@ func TestAskRecover(t *testing.T) {
 	}
 	if th.Messages[1].Status != domain.MessageDone {
 		t.Fatalf("done msg touched: %+v", th.Messages[1])
+	}
+}
+
+// scriptLLM streams chunks then either blocks until ctx ends or returns err.
+type scriptLLM struct {
+	chunks []string
+	err    error
+	block  bool
+}
+
+func (l scriptLLM) Run(ctx context.Context, _ llm.Request, onDelta func(string)) (string, error) {
+	for _, c := range l.chunks {
+		onDelta(c)
+	}
+	if l.block {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	return "", l.err
+}
+
+func lastAssistant(t *testing.T, f *pageFixture) domain.Message {
+	t.Helper()
+	th, err := f.repo.GetThread(context.Background(), "t1")
+	if err != nil || len(th.Messages) != 2 {
+		t.Fatalf("thread = %+v err=%v", th, err)
+	}
+	return th.Messages[1]
+}
+
+func TestAskCanceledStoresKoreanReasonAndPartial(t *testing.T) {
+	svc, f := newAskSvc(t)
+	svc.d.LLM = scriptLLM{chunks: []string{"부분 ", "답변"}, err: context.Canceled}
+	if _, err := svc.Start(context.Background(), "p1", 1, domain.Anchor{}, "q", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	m := lastAssistant(t, f)
+	if m.Status != domain.MessageFailed || m.Content != "부분 답변\n\n(연결이 끊겨 답변이 중단됨)" {
+		t.Fatalf("message = %+v", m)
+	}
+}
+
+func TestAskCanceledWithoutPartial(t *testing.T) {
+	svc, f := newAskSvc(t)
+	svc.d.LLM = scriptLLM{err: context.Canceled}
+	_, _ = svc.Start(context.Background(), "p1", 1, domain.Anchor{}, "q", nil)
+	if m := lastAssistant(t, f); m.Content != "답변 생성 실패: 연결이 끊겨 답변이 중단됨" {
+		t.Fatalf("content = %q", m.Content)
+	}
+}
+
+func TestAskTimeout(t *testing.T) {
+	svc, f := newAskSvc(t)
+	svc.d.Timeout = 20 * time.Millisecond
+	svc.d.LLM = scriptLLM{block: true}
+	_, err := svc.Start(context.Background(), "p1", 1, domain.Anchor{}, "q", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	if m := lastAssistant(t, f); m.Status != domain.MessageFailed || m.Content != "답변 생성 실패: 시간 초과" {
+		t.Fatalf("message = %+v", m)
+	}
+}
+
+func TestAskTimeoutKeepsPartial(t *testing.T) {
+	svc, f := newAskSvc(t)
+	svc.d.Timeout = 20 * time.Millisecond
+	svc.d.LLM = scriptLLM{chunks: []string{"앞부분"}, block: true}
+	_, _ = svc.Start(context.Background(), "p1", 1, domain.Anchor{}, "q", nil)
+	if m := lastAssistant(t, f); m.Content != "앞부분\n\n(시간 초과)" {
+		t.Fatalf("content = %q", m.Content)
 	}
 }

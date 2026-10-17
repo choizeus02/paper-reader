@@ -188,16 +188,29 @@ func (s *PageService) RunJob(ctx context.Context, k jobs.Key) (err error) {
 	if err = s.runJob(ctx, k); err == nil {
 		return nil
 	}
-	msg := err.Error()
+	var msg string
+	var shown *shownError
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		msg = "시간 초과"
 	case errors.Is(err, context.Canceled):
 		msg = restartMsg // server is shutting down
+	case errors.As(err, &shown):
+		msg = err.Error()
+	default:
+		log.Printf("page %s/%d: internal error: %v", k.PaperID, k.PageNo, err)
+		msg = "내부 오류가 발생했습니다"
 	}
 	s.fail(k, msg)
 	return err
 }
+
+// shownError marks errors whose text may be shown to the user as-is
+// (LLM CLI failures and output-format errors); all others are internal.
+type shownError struct{ err error }
+
+func (e *shownError) Error() string { return e.err.Error() }
+func (e *shownError) Unwrap() error { return e.err }
 
 // fail records the failure and tells subscribers. The caller closes the stream.
 func (s *PageService) fail(k jobs.Key, msg string) {
@@ -238,7 +251,7 @@ func (s *PageService) runJob(ctx context.Context, k jobs.Key) error {
 			},
 		)
 		if _, err := s.d.LLM.Run(ctx, req, parser.Write); err != nil {
-			return err
+			return &shownError{err}
 		}
 		var perr error
 		out, perr = parser.Finish()
@@ -246,7 +259,7 @@ func (s *PageService) runJob(ctx context.Context, k jobs.Key) error {
 			break
 		}
 		if attempt >= 2 {
-			return fmt.Errorf("출력 형식 오류: %w", perr)
+			return &shownError{fmt.Errorf("출력 형식 오류: %w", perr)}
 		}
 		s.d.Hub.Publish(k, jobs.Event{Name: "status", Data: map[string]string{"status": "retrying"}})
 	}
@@ -262,13 +275,14 @@ func (s *PageService) runJob(ctx context.Context, k jobs.Key) error {
 		Translation: translation, Explanation: out.Explanation, PageSummary: out.Summary,
 		PromptVersion: llm.PagePromptVersion,
 	}
-	if err := s.d.Results.SaveDone(ctx, res); err != nil {
-		return err
-	}
+	// Glossary first so its terms are visible no later than the done state.
 	if len(out.Glossary) > 0 {
 		if err := s.d.Glossary.AddGlossary(ctx, k.PaperID, out.Glossary); err != nil {
 			log.Printf("page %s/%d: glossary: %v", k.PaperID, k.PageNo, err)
 		}
+	}
+	if err := s.d.Results.SaveDone(ctx, res); err != nil {
+		return err
 	}
 	s.d.Hub.Publish(k, jobs.Event{Name: "done", Data: struct{}{}})
 	return nil

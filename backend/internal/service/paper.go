@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -73,6 +74,14 @@ func (s *PaperService) Upload(ctx context.Context, filename string, r io.Reader)
 }
 
 func (s *PaperService) process(id string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("paper %s: extraction panic: %v\n%s", id, r, debug.Stack())
+			if ferr := s.repo.SetPaperFailed(context.Background(), id, "PDF 처리 실패: 내부 오류"); ferr != nil {
+				log.Printf("paper %s: mark failed: %v", id, ferr)
+			}
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), extractTimeout)
 	defer cancel()
 	dir := paperDir(s.dataDir, id)

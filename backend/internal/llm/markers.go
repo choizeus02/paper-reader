@@ -7,7 +7,7 @@ import (
 	"github.com/choizeus02/paper-reader/backend/internal/domain"
 )
 
-var ErrIncompleteOutput = errors.New("llm output incomplete (missing @@EXPLANATION, @@SUMMARY or @@END)")
+var ErrIncompleteOutput = errors.New("출력이 완전하지 않음")
 
 type PageOutput struct {
 	Translation []domain.BlockTranslation

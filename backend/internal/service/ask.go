@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -22,6 +23,7 @@ type AskDeps struct {
 	Threads ThreadRepo
 	LLM     LLM
 	DataDir string
+	Timeout time.Duration // per-answer LLM limit; 0 means none
 }
 
 type AskService struct {
@@ -85,10 +87,23 @@ func (s *AskService) answer(ctx context.Context, t domain.Thread, req llm.Reques
 		return domain.Thread{}, err
 	}
 
-	text, runErr := s.d.LLM.Run(ctx, req, onDelta)
+	runCtx := ctx
+	if s.d.Timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, s.d.Timeout)
+		defer cancel()
+	}
+	var partial strings.Builder
+	text, runErr := s.d.LLM.Run(runCtx, req, func(d string) {
+		partial.WriteString(d)
+		if onDelta != nil {
+			onDelta(d)
+		}
+	})
 	bg := context.Background() // persist the outcome even if the client went away
 	if runErr != nil {
-		if err := s.d.Threads.FinishMessage(bg, aid, "답변 생성 실패: "+runErr.Error(), domain.MessageFailed); err != nil {
+		content := failedContent(runErr, partial.String())
+		if err := s.d.Threads.FinishMessage(bg, aid, content, domain.MessageFailed); err != nil {
 			log.Printf("thread %s: store failed message: %v", t.ID, err)
 		}
 		return domain.Thread{}, runErr
@@ -135,4 +150,22 @@ func (s *AskService) Recover(ctx context.Context) error {
 		log.Printf("marked %d unfinished answers as failed", n)
 	}
 	return err
+}
+
+// failedContent builds the stored text of a failed answer, keeping any
+// partial text that was already streamed.
+func failedContent(runErr error, partial string) string {
+	var reason string
+	switch {
+	case errors.Is(runErr, context.DeadlineExceeded):
+		reason = "시간 초과"
+	case errors.Is(runErr, context.Canceled):
+		reason = "연결이 끊겨 답변이 중단됨"
+	default:
+		return "답변 생성 실패: " + runErr.Error()
+	}
+	if partial != "" {
+		return partial + "\n\n(" + reason + ")"
+	}
+	return "답변 생성 실패: " + reason
 }

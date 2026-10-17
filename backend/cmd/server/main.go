@@ -64,7 +64,7 @@ func run() error {
 		LLM: runner, Queue: queue, Hub: hub, DataDir: cfg.DataDir,
 	})
 	ask := service.NewAskService(service.AskDeps{
-		Papers: st, Pages: st, Results: st, Threads: st, LLM: runner, DataDir: cfg.DataDir,
+		Papers: st, Pages: st, Results: st, Threads: st, LLM: runner, DataDir: cfg.DataDir, Timeout: cfg.JobTimeout,
 	})
 
 	// Anything left in flight by a previous run can never finish; mark it failed.

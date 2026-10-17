@@ -126,3 +126,23 @@ func TestPaperRecover(t *testing.T) {
 		t.Fatalf("a=%+v b=%+v", a, b)
 	}
 }
+
+type panicPDF struct{}
+
+func (panicPDF) Process(context.Context, string, string) ([]domain.Page, error) {
+	panic("pdf exploded")
+}
+
+func TestUploadPanicMarksFailed(t *testing.T) {
+	repo := newFakeRepo()
+	s := NewPaperService(repo, panicPDF{}, t.TempDir())
+	s.newID = func() string { return "p1" }
+	s.spawn = func(f func()) { f() }
+	if _, err := s.Upload(context.Background(), "x.pdf", strings.NewReader("%PDF-1.4")); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repo.GetPaper(context.Background(), "p1")
+	if got.Status != domain.PaperFailed || got.Error != "PDF 처리 실패: 내부 오류" {
+		t.Fatalf("got %+v", got)
+	}
+}
