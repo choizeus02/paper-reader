@@ -1,0 +1,33 @@
+Paper: {{.Title}}, page {{.PageNo}}. The attached image is this page.
+
+## Page text
+{{- range .Blocks}}
+[{{.ID}}] {{.Text}}
+{{- else}}
+(no extractable text)
+{{- end}}
+{{- if .Translation}}
+
+## Korean translation of this page
+{{- range .Translation}}
+[{{.BlockID}}] {{.Ko}}
+{{- end}}
+{{- end}}
+
+## What the reader selected
+{{- if .Anchor.BlockIDs}}
+Blocks: {{range $i, $id := .Anchor.BlockIDs}}{{if $i}}, {{end}}{{$id}}{{end}}
+{{- end}}
+{{- if .Anchor.Quote}}
+Quote: "{{.Anchor.Quote}}"
+{{- end}}
+{{- if .History}}
+
+## Conversation so far
+{{- range .History}}
+{{if eq .Role "user"}}Reader{{else}}Tutor{{end}}: {{.Content}}
+{{- end}}
+{{- end}}
+
+## Reader's question
+{{.Question}}

@@ -1,0 +1,51 @@
+Paper: {{.Title}}
+Page {{.PageNo}} of {{.PageCount}}
+{{- if .Abstract}}
+
+## Paper opening (for context)
+{{.Abstract}}
+{{- end}}
+{{- if .PrevSummary}}
+
+## Previous page summary
+{{.PrevSummary}}
+{{- end}}
+{{- if .Glossary}}
+
+## Glossary (use these Korean terms consistently)
+{{- range .Glossary}}
+- {{.En}} → {{.Ko}}{{if .Note}} ({{.Note}}){{end}}
+{{- end}}
+{{- end}}
+
+## Text blocks extracted from this page
+The attached image is this page. Blocks are listed in extraction order. Extraction can garble text (especially math), so use the image to correct it.
+{{range .Blocks}}
+[{{.ID}}] {{.Text}}
+{{- else}}
+(no extractable text — rely on the image)
+{{- end}}
+
+## Task
+1. Translate every block into natural, precise Korean. Skip only page numbers, running headers/footers and arXiv stamps. Keep citations like [12] as they are. Write math in LaTeX using $...$ or $$...$$. For a block that is only math, give the LaTeX followed by a one-line Korean statement of what it says.
+2. Write a deep-dive explanation of this page in Korean Markdown using these headings (omit a heading only if the page has nothing for it):
+   ## 이 페이지 요지
+   ## 핵심 내용 풀이
+   ## 수식 풀이
+   ## 그림·표 해설
+   ## 용어
+3. Write a one- or two-sentence Korean summary of this page.
+4. List technical terms from this page that are not in the glossary above.
+
+## Output format
+Output exactly the following and nothing else.
+@@BLOCK <block id>
+<Korean translation of that block>
+(repeat one @@BLOCK section per translated block, in block order)
+@@EXPLANATION
+<Markdown explanation>
+@@SUMMARY
+<summary>
+@@GLOSSARY
+<english term> | <korean term> | <optional note>
+@@END
