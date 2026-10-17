@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -82,20 +83,30 @@ func run() error {
 		Addr:              cfg.ListenAddr,
 		Handler:           handler.NewRouter(papers, pages, ask, nil),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Request contexts end with the signal context, so in-flight ask/SSE
+		// handlers (and their claude subprocesses) stop promptly on shutdown.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
+	httpDone := make(chan struct{})
 	go func() {
+		defer close(httpDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			srv.Close() // open SSE streams
+			srv.Close() // handlers that outlived the drain window
 		}
+		log.Print("http server stopped")
 	}()
 
 	log.Printf("paper-reader listening on %s (data: %s, workers: %d)", cfg.ListenAddr, cfg.DataDir, cfg.Workers)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err = srv.ListenAndServe()
+	stop() // no-op on signal; on an early listen failure this stops the workers
+	<-httpDone
+	queue.Wait()
+	log.Print("queue drained")
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	queue.Wait()
 	return nil
 }
