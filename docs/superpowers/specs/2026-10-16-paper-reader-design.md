@@ -84,7 +84,7 @@ paper-reader/
 
 - 앱은 **환경변수만** 읽는다. 시크릿 저장소에 의존하는 코드나 `.env` 로더는 두지 않는다.
 - 시크릿은 self-hosted **Infisical**(TrueNAS)의 `paper-reader` 프로젝트에서 관리한다. 환경: `dev`(Development), `prod`(Production).
-- 개발: `make dev`가 `infisical run --env=dev -- ...`로 서버를 띄운다. 저장소 루트의 `.infisical.json`(프로젝트 ID만 들어 있음)은 커밋한다. 이 파일은 사용자가 직접 `infisical init`으로 만든다 (구현 단계에서 생성하지 않는다).
+- 개발: `make dev`가 `infisical run --env=dev -- ...`로 서버를 띄운다. 저장소 루트의 `.infisical.yaml`(프로젝트 ID만 들어 있음)은 커밋한다. 이 파일은 사용자가 직접 `infisical init`으로 만든다 (구현 단계에서 생성하지 않는다).
 - 운영: 컨테이너 시작 명령이 `infisical run --env=prod -- ./server`다. 컨테이너에는 Machine Identity 자격증명(`INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`)과 `INFISICAL_API_URL`만 TrueNAS 앱 환경변수로 직접 넣는다.
 - 시크릿이 아닌 설정(`WORKERS` 등)은 기본값을 쓰고, 바꿀 때만 Infisical에 추가한다.
 

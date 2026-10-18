@@ -6013,13 +6013,13 @@ The user runs in the repo root (interactive):
 
 ```bash
 infisical login --domain https://<infisical-host>
-infisical init        # pick the paper-reader project; writes .infisical.json
+infisical init        # pick the paper-reader project; writes .infisical.yaml
 ```
 
 Make sure the `dev` environment has `DATABASE_URL` pointing at a `paper_reader` database on the TrueNAS Postgres. Then commit the project link:
 
 ```bash
-git add .infisical.json && git commit -m "chore: link Infisical project"
+git add .infisical.yaml && git commit -m "chore: link Infisical project"
 ```
 
 - [ ] **Step 5: End-to-end smoke test** (uses a few pages of subscription quota)
